@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>花火の下で、影を取り戻す</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#060713;color:#fff2dc;font-family:"Yu Mincho","Hiragino Mincho ProN",serif;touch-action:none;user-select:none}
+#wrap{position:relative;width:min(100vw,1100px);height:min(100dvh,640px);margin:auto;overflow:hidden;background:#080a1c}
+canvas{display:block;width:100%;height:100%;cursor:crosshair}
+#hud,#controls{position:absolute;inset:0}
+#hud{pointer-events:none}
+#title,#status,#count,#meter,#hint{position:absolute}
+#title{top:15px;left:18px;font-size:clamp(15px,2.3vw,23px)}
+#status{top:52px;left:18px;max-width:58%;font-size:clamp(13px,1.7vw,18px);line-height:1.6;text-shadow:0 2px 5px #000;transition:opacity .8s}
+#status.hide{opacity:0}
+#status.breath{animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.42}50%{opacity:1}}
+#count{top:18px;right:18px;color:#ffdaa2}
+#meter{top:46px;right:18px;width:145px;height:7px;border-radius:8px;background:#ffffff38;overflow:hidden}
+#fill{width:0;height:100%;background:#ffd480}
+#hint{right:18px;bottom:132px;text-align:right;font-size:13px;line-height:1.55}
+#start,#ending{position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center}
+#start{z-index:30;background:linear-gradient(#07081655,#07081899)}
+#start h1{font-size:clamp(22px,4vw,36px);font-weight:normal;margin:0 0 8px;text-shadow:0 2px 10px #000}
+#call{display:inline-block;margin:0 0 12px;padding:8px 18px;border:1px solid #ffd9a088;border-radius:999px;background:#3a201088;letter-spacing:.22em;color:#ffe7c0;font-size:clamp(18px,3.1vw,30px);text-shadow:0 0 18px #ffb347,0 2px 8px #000;animation:pulse 1.35s ease-in-out infinite}
+#start p{max-width:640px;line-height:1.85;margin:0 auto 16px;text-shadow:0 2px 8px #000}
+button{min-height:52px;min-width:210px;border:0;border-radius:30px;background:#ffda9b;color:#211407;font:inherit;font-size:18px;cursor:pointer}
+#ending{display:none;z-index:20;background:#07081888;font-size:clamp(14px,1.8vw,20px);font-family:ui-monospace,monospace}
+#ending.show{display:grid}
+#ending small{display:block;margin-top:18px;font-size:14px;font-family:serif}
+#controls{pointer-events:none;z-index:15}
+.pad{position:absolute;bottom:calc(15px + env(safe-area-inset-bottom));width:112px;height:112px;border:1px solid #ffda9b99;border-radius:50%;background:#182035aa;pointer-events:auto;touch-action:none;cursor:grab}
+#left{left:15px}#right{right:15px;display:grid;place-items:center;text-align:center;line-height:1.45;cursor:pointer}
+#right.on{background:#b88753cc}
+#knob{position:absolute;top:50%;left:50%;width:42px;height:42px;border-radius:50%;background:#ffda9bcc;transform:translate(-50%,-50%);pointer-events:none}
+.lanterns{position:absolute;left:0;right:0;bottom:18%;height:46px;pointer-events:none}
+.lanterns i{position:absolute;bottom:0;width:8px;height:16px;border-radius:4px;background:#ffb347;box-shadow:0 0 16px 6px #ff9a2eaa}
+@media (max-width:800px){#wrap{width:100vw;height:100dvh}#status{max-width:54%}#hint{display:none}}
+</style>
+</head>
+<body>
+<main id="wrap">
+<canvas id="scene" width="1280" height="720"></canvas>
+<div class="lanterns" id="lans"></div>
+<div id="hud">
+<div id="title">花火の下で、影を取り戻す</div>
+<div id="status">川辺で花火を待っていた、祖母の影。</div>
+<div id="count"></div>
+<div id="meter"><div id="fill"></div></div>
+<div id="hint">左の丸をドラッグ、または矢印・WASD<br>右の丸かスペースを押し続ける<br>R：やり直す</div>
+</div>
+<div id="controls">
+<div id="left" class="pad"><div id="knob"></div></div>
+<div id="right" class="pad">長押し<br>呼吸</div>
+</div>
+<div id="start">
+<div>
+<h1>花火の下で、影を取り戻す</h1>
+<p id="call">打ち上げ開始でございます。</p>
+<!-- ③ ホーム画面の指定文言修正 -->
+<p>信濃川の夜。祖母の影を待ち、灯火と息で応える、三つの夜。メロンイエローの長生橋<br>画面を一度タップすると音が入ります。</p>
+<button id="go" type="button">物語をはじめる</button>
+</div>
+</div>
+<div id="ending"><div>DRN-00 LINK LOST<small>ここを押すか、R キーでもう一度</small></div></div>
+</main>
+<script>
+"use strict";
+const canvas=document.getElementById("scene"),ctx=canvas.getContext("2d");
+const startScreen=document.getElementById("start"),ending=document.getElementById("ending");
+const statusEl=document.getElementById("status"),countEl=document.getElementById("count"),fillEl=document.getElementById("fill");
+const left=document.getElementById("left"),right=document.getElementById("right"),knob=document.getElementById("knob");
+
+const spots=[{x:450,y:530},{x:720,y:560},{x:980,y:510}];
+const memories=["一度目。足元の灯が、ひとつ戻った。","二度目。名前を呼べば、肩が少し動いた。","三度目。光が落ちても、足元はもう闇じゃない。"];
+const dronePhrases = ["平和", "祈り", "白菊", "復興", "希望", "未来", "鎮魂"];
+
+const font12x12 = {
+  "平": [[0,1,1,1,1,1,1,1,1,1,1,0],[0,0,0,0,0,1,1,0,0,0,0,0],[0,0,0,0,0,1,1,0,0,0,0,0],[1,1,1,1,1,1,1,1,1,1,1,1],[0,0,1,1,0,1,1,0,1,1,0,0],[0,0,1,1,0,1,1,0,1,1,0,0],[0,1,0,0,0,1,1,0,0,0,1,0],[0,1,0,0,0,1,1,0,0,0,1,0],[1,0,0,0,0,1,1,0,0,0,0,1],[1,0,0,0,0,1,1,0,0,0,0,1],[0,0,0,0,0,1,1,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0]],
+  "和": [[1,0,0,0,1,0,0,1,1,1,1,1],[1,0,0,0,1,0,0,1,0,0,0,1],[1,0,0,0,1,0,0,1,0,0,0,1],[1,1,1,1,1,0,0,1,0,0,0,1],[1,0,0,0,1,0,0,1,0,0,0,1],[1,0,0,0,1,0,0,1,1,1,1,1],[1,0,0,0,1,0,0,1,0,0,0,1],[1,0,1,0,1,0,0,1,0,0,0,1],[1,0,1,0,1,0,0,1,0,0,0,1],[1,0,0,1,1,0,0,1,0,0,0,1],[1,0,0,0,1,0,0,1,1,1,1,1],[0,0,0,0,0,0,0,0,0,0,0,0]],
+  "祈": [[0,1,1,0,0,0,0,1,1,1,1,1],[0,0,1,1,0,0,0,0,0,1,0,0],[1,1,1,1,1,0,0,0,0,1,0,0],[0,0,1,1,0,0,1,1,1,1,1,1],[0,1,1,0,0,0,0,0,1,0,0,0],[0,1,1,0,0,0,0,0,1,0,0,0],[1,1,0,0,0,0,0,0,1,0,0,0],[0,1,1,0,0,0,0,0,1,0,0,0],[0,1,0,1,0,0,0,1,0,1,0,0],[0,1,0,0,1,0,0,1,0,1,0,0],[1,0,0,0,1,0,1,0,0,0,1,0],[0,0,0,0,0,0,0,0,0,0,0,0]],
+  "り": [[1,1,0,0,0,0,0,1,1,0,0,0],[1,1,0,0,0,0,0,1,1,0,0,0],[1,1,0,0,0,0,0,1,1,0,0,0],[1,1,0,0,0,0,0,1,1,0,0,0],[1,1,0,0,0,0,0,1,1,0,0,0],[1,1,0,0,0,0,0,1,1,0,0,0],[1,1,0,0,0,0,0,1,1,0,0,0],[1,1,0,0,0,0,0,1,1,0,0,0],[0,1,1,0,0,0,1,1,0,0,0,0],[0,0,1,1,0,1,1,0,0,0,0,0],[0,0,0,1,1,1,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0]],
+  "白": [[0,0,0,0,0,1,1,0,0,0,0,0],[0,0,0,0,1,1,0,0,0,0,0,0],[1,1,1,1,1,1,1,1,1,1,1,1],[1,1,0,0,0,0,0,0,0,0,1,1],[1,1,0,0,0,0,0,0,0,0,1,1],[1,1,0,0,0,0,0,0,0,0,1,1],[1,1,1,1,1,1,1,1,1,1,1,1],[1,1,0,0,0,0,0,0,0,0,1,1],[1,1,0,0,0,0,0,0,0,0,1,1],[1,1,0,0,0,0,0,0,0,0,1,1],[1,1,1,1,1,1,1,1,1,1,1,1],[0,0,0,0,0,0,0,0,0,0,0,0]],
+  "菊": [[0,0,1,1,0,1,1,0,1,1,0,0],[1,1,1,1,1,1,1,1,1,1,1,1],[0,0,0,1,1,1,1,1,1,0,0,0],[0,1,0,0,1,0,0,1,0,0,1,0],[1,1,1,1,1,1,1,1,1,1,1,1],[1,0,0,1,0,1,1,0,1,0,0,1],[1,0,0,1,0,1,1,0,1,0,0,1],[1,1,1,1,1,1,1,1,1,1,1,1],[1,0,0,0,1,0,0,1,0,0,0,1],[1,0,0,1,0,0,0,0,1,0,0,1],[1,0,1,0,0,0,0,0,0,1,0,1],[0,0,0,0,0,0,0,0,0,0,0,0]],
+  "復": [[1,0,0,0,1,1,1,1,1,1,1,0],[1,0,0,0,0,0,1,1,0,0,0,0],[1,1,0,0,1,1,1,1,1,1,1,0],[1,0,0,0,0,0,1,1,0,0,0,0],[1,0,0,0,1,1,1,1,1,1,1,0],[1,0,0,0,0,0,1,1,0,0,0,0],[1,0,0,0,1,0,0,1,0,0,0,0],[1,0,0,0,1,0,0,0,1,0,0,0],[1,0,0,0,1,0,0,0,0,1,0,0],[1,0,0,0,1,0,0,0,0,0,1,1],[1,0,0,0,1,0,0,0,0,0,0,1],[0,0,0,0,0,0,0,0,0,0,0,0]],
+  "興": [[1,1,1,1,1,1,1,1,1,1,1,1],[1,0,0,0,1,0,0,1,0,0,0,1],[1,0,0,0,1,1,1,1,0,0,0,1],[1,0,0,0,1,0,0,1,0,0,0,1],[1,1,1,1,1,1,1,1,1,1,1,1],[1,0,0,1,0,1,1,0,1,0,0,1],[1,0,0,1,0,1,1,0,1,0,0,1],[1,1,1,1,1,1,1,1,1,1,1,1],[1,0,0,0,0,0,0,0,0,0,0,1],[1,0,0,0,0,0,0,0,0,0,0,1],[1,0,0,0,0,0,0,0,0,0,0,1],[0,0,0,0,0,0,0,0,0,0,0,0]],
+  "希": [[0,0,0,0,1,1,1,1,0,0,0,0],[1,1,1,1,1,1,1,1,1,1,1,1],[0,0,0,0,0,1,1,0,0,0,0,0],[0,0,1,1,1,1,1,1,1,1,0,0],[0,1,1,0,0,1,1,0,0,1,1,0],[0,0,0,0,0,1,1,0,0,0,0,0],[0,0,1,1,1,1,1,1,1,1,0,0],[0,0,1,0,0,1,1,0,0,1,0,0],[0,0,1,0,0,1,1,0,0,1,0,0],[0,0,1,0,0,1,1,0,0,1,0,0],[0,0,1,0,0,1,1,0,0,1,0,0],[0,0,0,0,0,0,0,0,0,0,0,0]],
+  "望": [[1,1,1,1,1,1,1,1,1,1,1,1],[0,0,0,1,0,1,1,0,1,0,0,0],[1,1,1,1,1,1,1,1,1,1,1,1],[0,0,1,0,0,1,1,0,0,1,0,0],[1,1,1,1,1,1,1,1,1,1,1,1],[1,1,0,0,0,1,1,0,0,0,1,1],[1,1,1,1,1,1,1,1,1,1,1,1],[1,1,0,0,0,1,1,0,0,0,1,1],[1,1,1,1,1,1,1,1,1,1,1,1],[1,1,0,0,0,1,1,0,0,0,1,1],[1,1,1,1,1,1,1,1,1,1,1,1],[0,0,0,0,0,0,0,0,0,0,0,0]],
+  "未": [[1,1,1,1,1,1,1,1,1,1,1,1],[0,0,0,0,0,1,1,0,0,0,0,0],[0,0,1,1,1,1,1,1,1,1,0,0],[0,0,0,0,0,1,1,0,0,0,0,0],[1,1,1,1,1,1,1,1,1,1,1,1],[0,0,0,1,0,1,1,0,1,0,0,0],[0,0,1,0,0,1,1,0,0,1,0,0],[0,1,0,0,0,1,1,0,0,0,1,0],[1,0,0,0,0,1,1,0,0,0,0,1],[1,0,0,0,0,1,1,0,0,0,0,1],[0,0,0,0,0,1,1,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0]],
+  "来": [[1,1,1,1,1,1,1,1,1,1,1,1],[0,0,0,0,0,1,1,0,0,0,0,0],[0,0,1,1,1,1,1,1,1,1,0,0],[0,1,0,1,0,1,1,0,1,0,1,0],[1,1,1,1,1,1,1,1,1,1,1,1],[0,0,0,1,0,1,1,0,1,0,0,0],[0,0,1,0,0,1,1,0,0,1,0,0],[0,1,0,0,0,1,1,0,0,0,1,0],[1,0,0,0,0,1,1,0,0,0,0,1],[1,0,0,0,0,1,1,0,0,0,0,1],[0,0,0,0,0,1,1,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0]],
+  "鎮": [[1,1,1,1,1,1,1,1,1,1,1,1],[1,0,0,1,0,0,1,0,0,0,0,1],[1,1,1,1,1,1,1,1,1,1,1,1],[1,0,0,1,0,0,1,0,0,0,0,1],[1,1,1,1,1,1,1,1,1,1,1,1],[1,0,0,1,0,0,1,0,0,0,0,1],[1,0,0,1,1,1,1,1,1,0,0,1],[1,0,1,0,0,0,0,0,0,1,0,1],[1,1,0,0,0,0,0,0,0,0,1,1],[1,0,0,0,0,0,0,0,0,0,0,1],[1,0,0,0,0,0,0,0,0,0,0,1],[0,0,0,0,0,0,0,0,0,0,0,0]],
+  "魂": [[1,1,1,1,1,1,1,1,1,1,1,1],[1,0,0,1,0,0,1,0,0,0,0,1],[1,1,1,1,1,1,1,1,1,1,1,1],[1,0,0,1,0,0,1,0,0,0,0,1],[1,1,1,1,1,1,1,1,1,1,1,1],[1,0,0,1,0,0,0,1,1,1,1,1],[1,0,0,1,0,0,0,1,0,0,0,1],[1,0,0,1,0,0,0,1,0,0,0,1],[1,1,1,1,1,1,1,1,1,1,1,1],[1,0,0,1,0,0,0,1,0,0,0,1],[1,0,0,1,0,0,0,1,0,0,0,1],[0,0,0,0,0,0,0,0,0,0,0,0]]
+};
+
+let audio=null,master=null,started=false,done=false,keys={},touchX=0,touchY=0,touching=false,prevHold=false;
+let movingPointer=null,holdingPointer=null,player={x:230,y:590},realIndex=0;
+let hits=0,gauge=0,usedThisBurst=false,clock=0.4,time=0,phoenix=0,finale=0,flash=0,voidFade=0,line="";
+let chapter=1,lanternsFixed=0,lockUsed=false;
+let bgmTimer=0,homeTimer=0,endingTimer=null,chordTimer=null,finaleTimer=null,msgTimer=null,lastFrame=0,gap=1.2,finaleN=0;
+let blooms=[],ash=[],smoke=[],crowd=[],showers=[],buildings=[], miniPhoenixes=[];
+
+let showDrone=false;
+let currentPhrase = "平和";
+let droneSwarm = [];
+let droneTimer = 0;
+let miniPhoenixTimes = [];
+
+document.getElementById("lans").innerHTML=Array.from({length:28},(_,i)=>'<i style="left:'+(2+i*3.4)+'%"></i>').join("");
+buildings=Array.from({length:18},(_,i)=>({x:i*78,w:36+((i*37)%48),h:22+((i*53)%48)}));
+
+for(let i=0;i<800;i++){
+  droneSwarm.push({
+    x: 640 + (Math.random()-0.5)*700,
+    y: 110 + (Math.random()-0.5)*120,
+    tx: 640, ty: 110,
+    vx: 0, vy: 0,
+    color: "#80d4ff"
+  });
+}
+
+function say(text,breath){
+  if(text===line&&statusEl.classList.contains("breath")===!!breath)return;
+  line=text;statusEl.classList.add("hide");statusEl.classList.remove("breath");
+  setTimeout(()=>{if(line!==text)return;statusEl.textContent=text;statusEl.classList.remove("hide");if(breath)statusEl.classList.add("breath");},breath?40:180);
+}
+function out(){return master||(audio&&audio.destination);}
+
+function tone(f,d,v,type){
+  if(!audio)return;
+  try{
+    const o=audio.createOscillator(),a=audio.createGain(),n=audio.currentTime;
+    o.type=type||"sine";o.frequency.setValueAtTime(f,n);
+    a.gain.setValueAtTime(Math.max(.0001,v),n);
+    a.gain.exponentialRampToValueAtTime(.001,n+d);
+    o.connect(a);a.connect(out());o.start(n);o.stop(n+d);
+  }catch(e){}
+}
+
+function noise(dur,gain,hp,lpF,q){
+  if(!audio)return;
+  try{
+    const n=audio.currentTime,len=Math.floor(audio.sampleRate*dur);
+    const buf=audio.createBuffer(1,len,audio.sampleRate),d=buf.getChannelData(0);
+    for(let i=0;i<len;i++){const t=i/len;d[i]=(Math.random()*2-1)*Math.pow(1-t,q||1.1);}
+    const s=audio.createBufferSource();s.buffer=buf;
+    const f=audio.createBiquadFilter();f.type=hp?"highpass":"lowpass";
+    f.frequency.setValueAtTime(lpF,n);
+    if(!hp)f.frequency.exponentialRampToValueAtTime(8,n+dur);
+    const g=audio.createGain();g.gain.setValueAtTime(gain*3.5,n);
+    g.gain.exponentialRampToValueAtTime(.001,n+dur);
+    s.connect(f);f.connect(g);g.connect(out());s.start(n);
+  }catch(e){}
+}
+
+function whistle(power){
+  if(!audio)return;
+  try{
+    const n=audio.currentTime,p=power||.5;
+    const o=audio.createOscillator(), a=audio.createGain();
+    o.type="sawtooth";
+    o.frequency.setValueAtTime(22, n);
+    o.frequency.exponentialRampToValueAtTime(65+p*25, n+.55);
+    
+    const f=audio.createBiquadFilter();
+    f.type="lowpass"; f.frequency.setValueAtTime(70, n);
+
+    a.gain.setValueAtTime(.001, n);
+    a.gain.linearRampToValueAtTime(.7*p, n+.25);
+    a.gain.exponentialRampToValueAtTime(.001, n+.6);
+
+    o.connect(f); f.connect(a); a.connect(out());
+    o.start(n); o.stop(n+.65);
+  }catch(e){}
+}
+
+function boom(power){
+  if(!audio)return;
+  const p=Math.max(0.3,Math.min(1,power));
+  const n=audio.currentTime;
+
+  try{
+    const o=audio.createOscillator(), a=audio.createGain();
+    o.type="sine";
+    o.frequency.setValueAtTime(35*p, n);
+    o.frequency.exponentialRampToValueAtTime(12, n+0.85);
+    a.gain.setValueAtTime(4.2*p, n);
+    a.gain.exponentialRampToValueAtTime(0.0001, n+0.9);
+    o.connect(a); a.connect(out());
+    o.start(n); o.stop(n+0.95);
+
+    const o2=audio.createOscillator(), a2=audio.createGain();
+    o2.type="triangle";
+    o2.frequency.setValueAtTime(22*p, n);
+    o2.frequency.exponentialRampToValueAtTime(8, n+1.1);
+    a2.gain.setValueAtTime(3.5*p, n);
+    a2.gain.exponentialRampToValueAtTime(0.0001, n+1.15);
+    o2.connect(a2); a2.connect(out());
+    o2.start(n); o2.stop(n+1.2);
+  }catch(e){}
+
+  noise(0.7, 2.8*p, false, 55, 1.8);
+}
+
+function prayer(){[196,247,294,392].forEach((f,i)=>setTimeout(()=>{if(done)tone(f,3.4,.045,"sine");},i*240));}
+function bed(){if(!audio||done)return;tone(146,1.6,.012,"sine");tone(220,1.4,.008,"triangle");}
+function homeBed(){
+  if(!audio||started)return;
+  const n=Math.floor(time*2)%8;
+  tone(196+n*12,.35,.018,"sine");
+  if(n%4===0)whistle(.22);
+  if(n===7)boom(.18);
+}
+
+function enableAudio(){
+  try{
+    const A=window.AudioContext||window.webkitAudioContext;if(!A)return;
+    if(!audio)audio=new A();
+    if(!master){master=audio.createGain();master.gain.value=.9;master.connect(audio.destination);}
+    if(audio.state==="suspended")audio.resume();
+  }catch(e){audio=null;}
+}
+
+function updateDroneTargets(){
+  currentPhrase = dronePhrases[Math.floor(Math.random()*dronePhrases.length)];
+  const chars = currentPhrase.split("");
+  const targetPoints = [];
+
+  const charWidth = 120;
+  const startX = 640 - ((chars.length * charWidth) / 2) + 10;
+  const startY = 45;
+
+  chars.forEach((c, cIdx) => {
+    const pat = font12x12[c] || font12x12["平"];
+    for(let r=0; r<12; r++){
+      for(let col=0; col<12; col++){
+        if(pat[r][col] === 1){
+          targetPoints.push({
+            x: startX + cIdx * charWidth + col * 8.2,
+            y: startY + r * 8.2
+          });
+        }
+      }
+    }
+  });
+
+  droneSwarm.forEach((d, i) => {
+    if(i < targetPoints.length){
+      d.tx = targetPoints[i].x + (Math.random()-0.5)*0.8;
+      d.ty = targetPoints[i].y + (Math.random()-0.5)*0.8;
+      d.color = "#7ce8ff";
+    } else {
+      const ang = (i / droneSwarm.length) * Math.PI * 2;
+      d.tx = 640 + Math.cos(ang) * (260 + (i%9)*12);
+      d.ty = 100 + Math.sin(ang) * (65 + (i%7)*10);
+      d.color = "#ffffff";
+    }
+  });
+}
+
+function generateMiniPhoenixPlan(){
+  miniPhoenixTimes = [];
+  const count = Math.floor(Math.random() * 3) + 2;
+  const baseSteps = [3, 6, 9, 12, 15];
+  baseSteps.sort(() => Math.random() - 0.5);
+  for(let i=0; i<count; i++){
+    miniPhoenixTimes.push(baseSteps[i]);
+  }
+}
+
+/* ① 小不死鳥のサイズ・スケールを拡大し、視認性を向上 */
+function spawnMiniPhoenix(){
+  const side = Math.random() < 0.5 ? -1 : 1;
+  miniPhoenixes.push({
+    x: side === -1 ? -50 : 1330,
+    y: 110 + Math.random()*80,
+    vx: side * (170 + Math.random()*60),
+    life: 0,
+    maxLife: 4.2,
+    scale: 0.95 + Math.random()*0.25, // ひと回り大きく変更
+    trail: []
+  });
+  tone(988, 0.45, 0.04, "sine");
+}
+
+function reset(){
+  clearTimeout(endingTimer);clearTimeout(chordTimer);clearTimeout(finaleTimer);clearTimeout(msgTimer);
+  done=false;hits=0;gauge=0;clock=.4;phoenix=0;finale=0;flash=0;voidFade=0;usedThisBurst=false;line="";bgmTimer=0;showDrone=false;
+  chapter=1;lanternsFixed=0;lockUsed=false;gap=1.2;finaleN=0;
+  prevHold=false;droneTimer=0;
+  realIndex=Math.floor(Math.random()*spots.length);player={x:230,y:590};keys={};touchX=0;touchY=0;touching=false;
+  blooms=[];ash=[];showers=[];miniPhoenixes=[];
+  
+  generateMiniPhoenixPlan();
+
+  crowd=[];for(let i=0;i<40;i++)crowd.push({x:Math.random()*1280,y:500+Math.random()*150,s:.55+Math.random()*.5,v:(Math.random()<.5?-1:1)*(12+Math.random()*20),a:.28+Math.random()*.4});
+  smoke=[];for(let i=0;i<8;i++)smoke.push({x:i*170,y:70+Math.random()*40,r:36+Math.random()*40,v:8+Math.random()*10});
+  knob.style.transform="translate(-50%,-50%)";right.classList.remove("on");ending.classList.remove("show");
+  statusEl.classList.remove("breath","hide");say("一章。落ちた提灯を、肩の高さに戻す。",false);countEl.textContent="提灯 0 / 3";fillEl.style.width="0%";
+}
+
+function begin(){if(started)return;enableAudio();started=true;reset();startScreen.style.display="none";boom(.6);}
+
+function addBloom(x,y,r,color,max,rays,isEarly){
+  const particles=[];
+  const count=rays*3.8;
+  for(let i=0;i<count;i++){
+    const ang=Math.random()*Math.PI*2;
+    const spd=(0.35+Math.random()*0.85)*(r*2.6);
+    particles.push({
+      x:0, y:0,
+      vx:Math.cos(ang)*spd,
+      vy:Math.sin(ang)*spd,
+      history:[],
+      twinkleOffset: Math.random()*100
+    });
+  }
+  blooms.push({x,y,life:0,max,r,color,particles,isEarly: !!isEarly});
+}
+
+function burst(power, isEarly){
+  usedThisBurst=false;flash=power>0.6?.25:.1;
+  whistle(power);
+  setTimeout(()=>boom(power), 480);
+  
+  const colors=["#ffe29d","#ffd066","#ffb042","#ffffff","#ffe8b5","#80d4ff","#a0e0ff"];
+  const n=power>0.6? 10 + Math.floor(Math.random()*5) : 4; 
+  for(let i=0;i<n;i++){
+    setTimeout(()=>{
+      const wideX = power>0.6 ? 60 + (i / (n-1)) * 1160 + (Math.random()-0.5)*60 : 120 + Math.random()*1040;
+      addBloom(
+        wideX,
+        power>0.6 ? 50 + Math.sin(i+finaleN)*45 : 50 + Math.random()*110,
+        (power>0.6?200:160)+Math.random()*60,
+        colors[i%colors.length],
+        power>0.6?4.0:3.4,
+        power>0.6?30:22,
+        isEarly
+      );
+    }, i*65);
+  }
+  if(power>0.6){
+    for(let i=0;i<7;i++) showers.push({x:100+i*180,y:15,life:0,max:3.2});
+  }
+}
+
+function finaleWave(){
+  if(!done||phoenix>0)return;
+  finaleN++;
+  
+  if(miniPhoenixTimes.includes(finaleN)){
+    spawnMiniPhoenix();
+  }
+
+  const accel=Math.min(1,finaleN/15);
+  const power=0.5 + accel * 0.48;
+  burst(power, false);
+  
+  gap=Math.max(0.4, 1.2 - finaleN*0.05); 
+  finaleTimer=setTimeout(finaleWave, gap*1000);
+}
+
+function win(){
+  done=true;voidFade=1;phoenix=0;finale=25;flash=0;showDrone=false;
+  say("二つの章が揃った。夜空が、光で満たされる。",false);countEl.textContent="物語 完了";fillEl.style.width="100%";
+  
+  setTimeout(()=>{if(done){voidFade=.1;finaleWave();say("ワイドに広がるフェニックスの光流。",false);}}, 500);
+  
+  setTimeout(()=>{if(!done)return;clearTimeout(finaleTimer);phoenix=22;burst(1.0, false);say("花火が、大不死鳥になる。",false);}, 15000);
+  
+  msgTimer=setTimeout(()=>{
+    if(done){
+      showDrone=true;
+      updateDroneTargets();
+      say("夜空に高密度ドローンが描く、明確なメッセージ。",false);
+    }
+  }, 19000);
+  
+  chordTimer=setTimeout(()=>{if(done)prayer();}, 17000);
+  endingTimer=setTimeout(()=>{if(done){ending.querySelector("div").firstChild.textContent="「" + currentPhrase + "」—— 光は未来へ";ending.classList.add("show");}}, 29000);
+}
+
+function nextChapter(){
+  chapter++;gauge=0;lockUsed=false;usedThisBurst=false;
+  if(chapter===2){
+    say("二章。少し前かがみの影を探して。",false);
+    countEl.textContent="共鳴 0 / 3";
+    clock=.2;
+  }
+}
+
+function update(dt){
+  time+=dt;
+  if(!started){homeTimer+=dt;if(audio&&homeTimer>1.15){homeTimer=0;homeBed();}}
+  bgmTimer+=dt;if(started&&bgmTimer>2.8){bgmTimer=0;if(!done)bed();}
+  if(finale>0)finale=Math.max(0,finale-dt);
+  if(phoenix>0)phoenix=Math.max(0,phoenix-dt);
+  if(flash>0)flash=Math.max(0,flash-dt*.35);
+  if(voidFade>0&&(phoenix>0||finale<17))voidFade=Math.max(0,voidFade-dt*.5);
+  
+  if(!started)return;
+
+  // ① 青い小不死鳥の移動＆残像パーティクル計算
+  for(let i=miniPhoenixes.length-1; i>=0; i--){
+    const mp = miniPhoenixes[i];
+    mp.life += dt;
+    mp.x += mp.vx * dt;
+    mp.y += Math.sin(mp.life*4.5) * 22 * dt;
+
+    mp.trail.push({x: mp.x, y: mp.y, alpha: 1.0});
+    if(mp.trail.length > 22) mp.trail.shift();
+    mp.trail.forEach(t => t.alpha -= dt * 1.3);
+
+    if(mp.life > mp.maxLife || mp.x < -150 || mp.x > 1430){
+      miniPhoenixes.splice(i, 1);
+    }
+  }
+
+  if(showDrone){
+    droneTimer += dt;
+    if(droneTimer >= 4.5){
+      droneTimer = 0;
+      updateDroneTargets();
+    }
+    droneSwarm.forEach(d => {
+      d.x += (d.tx - d.x) * 4.2 * dt;
+      d.y += (d.ty - d.y) * 4.2 * dt;
+    });
+  }
+
+  crowd.forEach(p=>{p.x+=p.v*dt;if(p.x>1300)p.x=-20;if(p.x<-20)p.x=1300;});
+  smoke.forEach(s=>{s.x+=s.v*dt;if(s.x>1320)s.x=-40;});
+  if(Math.random()<.6)ash.push({x:Math.random()*1280,y:-4,v:18+Math.random()*24,life:5});
+  for(let i=ash.length-1;i>=0;i--){ash[i].y+=ash[i].v*dt;ash[i].life-=dt;if(ash[i].life<=0)ash.splice(i,1);}
+  
+  for(let i=blooms.length-1;i>=0;i--){
+    const b=blooms[i];
+    b.life+=dt;
+    if(b.life>b.max){blooms.splice(i,1);continue;}
+    
+    const gravity = 95;
+    b.particles.forEach(p => {
+      p.history.push({x: p.x, y: p.y});
+      if(p.history.length > 6) p.history.shift();
+
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += gravity * dt;
+      p.vx *= 0.94;
+      p.vy *= 0.96;
+    });
+  }
+
+  for(let i=showers.length-1;i>=0;i--){showers[i].life+=dt;if(showers[i].life>showers[i].max)showers.splice(i,1);}
+  
+  if(done)return;
+
+  if(chapter>=2){
+    clock+=dt;
+    if(clock>=3.2){clock=0;burst(0.45, true);}
+  }
+
+  let dx=touchX,dy=touchY;
+  if(keys.arrowleft||keys.a)dx-=1;if(keys.arrowright||keys.d)dx+=1;if(keys.arrowup||keys.w)dy-=1;if(keys.arrowdown||keys.s)dy+=1;
+  const len=Math.hypot(dx,dy),moving=len>.12;
+  if(moving){player.x=Math.max(35,Math.min(1245,player.x+dx/len*210*dt));player.y=Math.max(470,Math.min(660,player.y+dy/len*210*dt));}
+  
+  const holding=Boolean(keys[" "]||touching);
+  prevHold=holding;
+
+  if(chapter===1){
+    const targets=[420,700,980],tx=targets[lanternsFixed],near=Math.abs(player.x-tx)<70,heightOk=player.y<530;
+    if(!near){gauge=0;say("落ちた提灯の真下へ。",false);}
+    else if(!heightOk){gauge=0;say("もう少し、肩の高さまで上がって。",false);}
+    else if(!holding){gauge=0;lockUsed=false;say("そこで押し続けて、灯を戻す。",false);}
+    else{
+      say("そのまま。灯が肩に戻る。",true);
+      gauge+=dt;
+      if(gauge>=.65&&!lockUsed){
+        lockUsed=true;gauge=0;lanternsFixed++;
+        tone(520+lanternsFixed*80,.25,.05);
+        countEl.textContent="提灯 "+lanternsFixed+" / 3";
+        if(lanternsFixed===3)nextChapter();
+      }
+    }
+  }else{
+    const real=spots[realIndex],close=Math.hypot(player.x-real.x,player.y-real.y)<118;
+    const nearWrong=spots.some((s,i)=>i!==realIndex&&Math.hypot(player.x-s.x,player.y-s.y)<95);
+    const open=blooms.some(f=>f.life>.1&&f.life<2.0);
+
+    if(!close){gauge=0;say(nearWrong?"……違う。この影は背すじがまっすぐだ。":"少し前かがみの影を探して。",false);}
+    else if(moving){gauge=0;say("止まって。祖母のそばで息を合わせて。",false);}
+    else if(!open||usedThisBurst){gauge=0;say(hits?memories[hits-1]+" 次の花火を待つ。":"花火が開くのを待って。",false);}
+    else if(!holding){gauge=0;say("今だ。右の丸かスペースを押し続けて。",false);}
+    else{
+      say("そのまま、息を重ねて。",true);
+      gauge+=dt;
+      if(gauge>=.7){
+        gauge=0;usedThisBurst=true;hits++;
+        tone(784,.3,.05);
+        say(memories[hits-1],false);
+        countEl.textContent="共鳴 "+hits+" / 3";
+        if(hits===3)win();
+      }
+    }
+  }
+
+  if(!done)fillEl.style.width=Math.min(100,gauge/(chapter===2?.7:.6)*100)+"%";
+}
+
+function person(x,y,color,elder){
+  ctx.fillStyle=color;ctx.beginPath();ctx.arc(x+(elder?6:0),y-26,8,0,Math.PI*2);ctx.fill();ctx.beginPath();
+  if(elder){ctx.moveTo(x-10,y-14);ctx.quadraticCurveTo(x+16,y-12,x+10,y+18);ctx.lineTo(x-12,y+18);}else ctx.ellipse(x,y+3,10,18,0,0,Math.PI*2);
+  ctx.fill();
+  if(elder){ctx.strokeStyle="#bda889";ctx.beginPath();ctx.moveTo(x+14,y-10);ctx.lineTo(x+20,y+22);ctx.stroke();}
+}
+
+function chousei(y,scale){
+  ctx.save();ctx.translate(0,y);ctx.scale(1,scale);
+  ctx.fillStyle="#c2e185";ctx.fillRect(40,78,1200,10);
+  ctx.strokeStyle="#9ec750";ctx.lineWidth=3;
+  for(let span=0;span<4;span++){
+    const x0=50+span*300;
+    ctx.beginPath();ctx.moveTo(x0,82);ctx.quadraticCurveTo(x0+150,-36,x0+300,82);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(x0,82);ctx.quadraticCurveTo(x0+150,118,x0+300,82);ctx.stroke();
+    for(let i=0;i<8;i++){const a=x0+i*37,b=x0+(i+1)*37;ctx.beginPath();ctx.moveTo(a,82);ctx.lineTo((a+b)/2,i%2?18:58);ctx.lineTo(b,82);ctx.stroke();}
+    ctx.fillStyle="#6d912b";ctx.fillRect(x0+140,82,18,70);
+  }
+  ctx.fillStyle="#ebfca4";
+  for(let x=70;x<1220;x+=28)ctx.fillRect(x,74,3,6);
+  const wob=Math.sin(time*3)*6;
+  ctx.strokeStyle="rgba(215,245,150,.35)";
+  ctx.beginPath();ctx.moveTo(40,150+wob);ctx.quadraticCurveTo(640,168-wob,1240,148+wob);ctx.stroke();
+  ctx.restore();
+}
+
+function sanjaku(cx,cy,pulse){
+  const r=210+Math.sin(time*1.4)*8,cols=["#ffe08a","#ffb703","#ff8a4a","#fff6d0"];
+  ctx.save();ctx.translate(cx,cy);ctx.globalAlpha=.85;
+  ctx.fillStyle="rgba(255,210,120,"+(.12+pulse*.08)+")";ctx.beginPath();ctx.arc(0,0,r*1.15,0,Math.PI*2);ctx.fill();
+  for(let ring=0;ring<3;ring++){
+    ctx.strokeStyle=cols[ring%4];ctx.lineWidth=ring?1.4:2.2;
+    for(let i=0;i<48;i++){const a=i*Math.PI/24+time*(ring%2?.15:-.1),len=r*(.55+ring*.18)*(.85+pulse*.15);ctx.beginPath();ctx.moveTo(Math.cos(a)*18,Math.sin(a)*18);ctx.lineTo(Math.cos(a)*len,Math.sin(a)*len);ctx.stroke();}
+  }
+  ctx.fillStyle="#fff4c8";ctx.beginPath();ctx.arc(0,0,16,0,Math.PI*2);ctx.fill();
+  ctx.restore();ctx.globalAlpha=1;
+}
+
+/* ① 誰が見ても一目で不死鳥とわかる高クオリティ描画 */
+function drawMiniPhoenix(mp){
+  ctx.save();
+  ctx.translate(mp.x, mp.y);
+  ctx.scale(mp.scale * (mp.vx > 0 ? 1 : -1), mp.scale); 
+  const fade = Math.sin((mp.life/mp.maxLife)*Math.PI);
+
+  // 1. 青く輝く尾の光線トレイル
+  mp.trail.forEach((t, idx) => {
+    if(t.alpha <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = t.alpha * fade * 0.55;
+    ctx.fillStyle = "#2bbdff";
+    ctx.beginPath();
+    ctx.arc((t.x - mp.x)*(mp.vx > 0 ? 1 : -1), t.y - mp.y, 5 + idx*0.35, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  });
+
+  ctx.globalAlpha = fade;
+  ctx.shadowColor = "#00d5ff";
+  ctx.shadowBlur = 28;
+
+  const wingFlap = Math.sin(mp.life * 13) * 26; // 優雅でダイナミックな翼の羽ばたき
+
+  // 2. 伸びやかな3本の尾羽
+  ctx.strokeStyle = "#8fe5ff";
+  ctx.lineWidth = 3;
+  for(let i=-1; i<=1; i++){
+    ctx.beginPath();
+    ctx.moveTo(-18, i*5);
+    ctx.quadraticCurveTo(-70, i*15 + Math.sin(mp.life*7 + i)*12, -130, i*28);
+    ctx.stroke();
+  }
+
+  // 3. 多重グラデーション翼（外翼・内翼）
+  const wingGrad = ctx.createLinearGradient(0, -60, 0, 40);
+  wingGrad.addColorStop(0, "#dff7ff");
+  wingGrad.addColorStop(0.4, "#38b6ff");
+  wingGrad.addColorStop(1, "#0040e6");
+  ctx.fillStyle = wingGrad;
+
+  // 主翼
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.quadraticCurveTo(-35, -60 + wingFlap, -95, -42 + wingFlap*1.2);
+  ctx.quadraticCurveTo(-50, -12, 0, 10);
+  ctx.fill();
+
+  // 羽先（風切羽の伸びやかな装飾）
+  ctx.beginPath();
+  ctx.moveTo(-60, -42 + wingFlap*1.1);
+  ctx.lineTo(-115, -62 + wingFlap*1.45);
+  ctx.lineTo(-85, -30 + wingFlap);
+  ctx.fill();
+
+  // 4. 鳥の頭部・美しい首ライン・鋭いくちばし
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.moveTo(32, -2); // くちばし先端
+  ctx.lineTo(12, -10);
+  ctx.quadraticCurveTo(-12, -16, -30, 5);
+  ctx.quadraticCurveTo(-6, 15, 12, 8);
+  ctx.closePath();
+  ctx.fill();
+
+  // 象徴的な3本の頭部冠羽
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(10, -8);
+  ctx.quadraticCurveTo(22, -28, 35, -24);
+  ctx.moveTo(8, -8);
+  ctx.quadraticCurveTo(16, -32, 28, -32);
+  ctx.stroke();
+
+  // 輝く瞳
+  ctx.fillStyle = "#7ce8ff";
+  ctx.beginPath();
+  ctx.arc(15, -4, 3, 0, Math.PI*2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawPhoenix(){
+  const age=22-phoenix,sp=Math.min(1,age/1.3);
+  ctx.save();ctx.translate(640,210);ctx.globalAlpha=Math.min(1,phoenix/2);
+  ctx.fillStyle="#ff883a";
+  ctx.beginPath();ctx.moveTo(0,10);ctx.quadraticCurveTo(-280*sp,-120,-640*sp,20);ctx.quadraticCurveTo(-240*sp,110,0,30);ctx.fill();
+  ctx.beginPath();ctx.moveTo(0,10);ctx.quadraticCurveTo(280*sp,-110,640*sp,16);ctx.quadraticCurveTo(240*sp,100,0,30);ctx.fill();
+  ctx.strokeStyle="#ffe7b0";ctx.lineWidth=1.5;
+  for(let i=1;i<=6;i++){ctx.beginPath();ctx.moveTo(-8,12);ctx.quadraticCurveTo(-200*sp*(i/6),-16-i*8,-580*sp*(i/6),14+i*3);ctx.stroke();ctx.beginPath();ctx.moveTo(8,12);ctx.quadraticCurveTo(200*sp*(i/6),-16-i*8,580*sp*(i/6),14+i*3);ctx.stroke();}
+  ctx.fillStyle="#ffdf9c";ctx.beginPath();ctx.moveTo(-18,16);ctx.quadraticCurveTo(0,-78,28,8);ctx.quadraticCurveTo(6,58,-18,16);ctx.fill();
+  ctx.fillStyle="#fff";ctx.beginPath();ctx.arc(8,-28,3.2,0,Math.PI*2);ctx.fill();
+  ctx.restore();ctx.globalAlpha=1;
+}
+
+function sky(){
+  const g=ctx.createLinearGradient(0,0,0,720);g.addColorStop(0,"#120818");g.addColorStop(.55,"#2a1830");g.addColorStop(1,"#1a0e16");
+  ctx.fillStyle=g;ctx.fillRect(0,0,1280,720);
+  for(let i=0;i<80;i++){ctx.fillStyle="#ffe7c466";ctx.fillRect((i*97)%1280,(i*53)%200,1.5,1.5);}
+}
+
+function draw(){
+  sky();
+  
+  if(!started){
+    sanjaku(640,150,.7+Math.sin(time*2)*.3);
+    buildings.forEach(b=>{ctx.fillStyle="#120c18";ctx.fillRect(b.x,250-b.h,b.w,b.h);});
+    ctx.fillStyle="#123052";ctx.fillRect(0,430,1280,120);
+    chousei(360,1);
+    ctx.fillStyle="#160e19";ctx.fillRect(0,540,1280,180);
+    return;
+  }
+
+  smoke.forEach(s=>{ctx.fillStyle="rgba(255,170,90,.06)";ctx.beginPath();ctx.ellipse(s.x,s.y,s.r,14,0,0,Math.PI*2);ctx.fill();});
+  buildings.forEach(b=>{ctx.fillStyle="#120c18";ctx.fillRect(b.x,268-b.h*.6,b.w,b.h*.6);});
+  ctx.fillStyle="#151329";ctx.beginPath();ctx.moveTo(0,300);for(let x=0;x<=1280;x+=80)ctx.lineTo(x,220+Math.sin(x*.02)*28);ctx.lineTo(1280,310);ctx.fill();
+
+  if(showDrone){
+    ctx.save();
+    droneSwarm.forEach((d, idx) => {
+      const flicker = 0.85 + Math.sin(time*18 + idx)*0.15;
+      ctx.fillStyle = d.color;
+      ctx.globalAlpha = flicker;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, 2.2, 0, Math.PI*2);
+      ctx.fill();
+
+      ctx.fillStyle = "rgba(124, 232, 255, 0.25)";
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, 4.5, 0, Math.PI*2);
+      ctx.fill();
+    });
+    ctx.restore();
+  }
+
+  /* ② 観客・手前エリア（y >= 470）への不自然な花火描画の除外処理 */
+  showers.forEach(s=>{
+    const k=s.life/s.max;
+    ctx.strokeStyle="rgba(255,220,140,"+(1-k)+")";
+    for(let i=0;i<18;i++){
+      const sy1 = s.y+k*80;
+      const sy2 = s.y+k*220;
+      if(sy1 >= 470) continue; // 地表より下・手前は描画しない
+      const finalSy2 = Math.min(470, sy2);
+      ctx.beginPath();
+      ctx.moveTo(s.x+(i-9)*8, sy1);
+      ctx.lineTo(s.x+(i-9)*14, finalSy2);
+      ctx.stroke();
+    }
+  });
+
+  blooms.forEach(f=>{
+    const fade=Math.max(0, 1 - f.life/f.max);
+    ctx.save();
+    ctx.translate(f.x, f.y);
+    ctx.fillStyle=f.color;
+    ctx.strokeStyle=f.color;
+
+    f.particles.forEach(p=>{
+      const absY = f.y + p.y;
+      if(absY >= 470) return; // 地表（観客の手前）に出る火花を遮断・削除
+
+      let alpha = fade;
+      if(f.isEarly && fade < 0.45){
+        const twinkle = Math.sin(time*35 + p.twinkleOffset);
+        if(twinkle > 0.2) alpha *= 1.8; 
+        else alpha *= 0.2;
+      }
+      ctx.globalAlpha = Math.min(1, alpha);
+
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, f.isEarly ? 2.2 : 2.4, 0, Math.PI*2);
+      ctx.fill();
+
+      if(p.history.length > 1){
+        ctx.beginPath();
+        let startedTrace = false;
+        for(let h=0; h<p.history.length; h++){
+          const hAbsY = f.y + p.history[h].y;
+          if(hAbsY < 470){
+            if(!startedTrace){ ctx.moveTo(p.history[h].x, p.history[h].y); startedTrace = true; }
+            else { ctx.lineTo(p.history[h].x, p.history[h].y); }
+          }
+        }
+        if(startedTrace){
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+      }
+    });
+    ctx.restore();
+    ctx.globalAlpha=1;
+  });
+
+  miniPhoenixes.forEach(mp => drawMiniPhoenix(mp));
+
+  if(phoenix>0)drawPhoenix();
+
+  ctx.fillStyle="#123052";ctx.fillRect(0,300,1280,150);
+  blooms.forEach(f=>{
+    const k=Math.sin(Math.min(1,f.life/f.max)*Math.PI);
+    ctx.globalAlpha=.18*k;ctx.fillStyle=f.color;ctx.beginPath();
+    ctx.ellipse(f.x,390,f.r*k*.7,10,0,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;
+  });
+
+  ctx.strokeStyle="rgba(215,245,150,"+(0.2+(chapter-1)*.08)+")";
+  for(let row=0;row<5;row++){ctx.beginPath();for(let x=0;x<=1280;x+=16){const y=318+row*16+Math.sin(x*.03+time*2+row)*4;x?ctx.lineTo(x,y):ctx.moveTo(x,y);}ctx.stroke();}
+  
+  chousei(250,.72);
+
+  ctx.fillStyle="#160e19";ctx.fillRect(0,470,1280,250);
+  
+  const lamps=[420,700,980];
+  for(let i=0;i<14;i++){ctx.fillStyle="rgba(255,170,60,"+(.25+Math.sin(time*2+i)*.1)+")";ctx.beginPath();ctx.arc(80+i*84,i%2?502:430,4,0,Math.PI*2);ctx.fill();}
+  lamps.forEach((x,i)=>{ctx.fillStyle=i<lanternsFixed?"#ffd27a":"#5a4030";ctx.beginPath();ctx.arc(x,i<lanternsFixed?500:620,7,0,Math.PI*2);ctx.fill();});
+
+  ash.forEach(p=>{ctx.fillStyle="rgba(255,220,160,"+Math.max(0,p.life/5)*.5+")";ctx.fillRect(p.x,p.y,1.5,1.5);});
+
+  crowd.forEach(p=>person(p.x,p.y,"rgba(53,49,73,"+p.a+")",false));
+
+  if(chapter===2){
+    spots.forEach((s,i)=>{
+      const near=Math.hypot(player.x-s.x,player.y-s.y)<118, real=i===realIndex;
+      if(near){
+        ctx.strokeStyle=real?"#ffdb98":"#aa82e0";
+        ctx.beginPath();ctx.arc(s.x,s.y,36,0,Math.PI*2);ctx.stroke();
+      }
+      person(s.x,s.y,real&&near?"#f0bd83":"#794bb4",real);
+    });
+  }
+
+  person(player.x,player.y,"#ffd39d",false);
+
+  if(flash>0){ctx.fillStyle="rgba(255,236,210,"+flash+")";ctx.fillRect(0,0,1280,720);}
+  if(voidFade>0){ctx.fillStyle="rgba(0,0,0,"+Math.min(1,voidFade)+")";ctx.fillRect(0,0,1280,720);}
+}
+
+function frame(now){const dt=lastFrame?Math.min(.04,(now-lastFrame)/1000):0;lastFrame=now;update(dt);draw();requestAnimationFrame(frame);}
+
+document.getElementById("go").addEventListener("pointerdown",enableAudio);
+startScreen.addEventListener("pointerdown",enableAudio);
+document.getElementById("go").addEventListener("pointerup",begin);
+document.getElementById("go").addEventListener("click",begin);
+ending.addEventListener("pointerup",()=>{if(done)reset();});
+
+document.addEventListener("keydown",e=>{
+  const key=e.key.toLowerCase(),space=e.code==="Space"||key===" ";
+  if(space||key.startsWith("arrow"))e.preventDefault();
+  if(!started&&(space||key==="enter"))begin();
+  if(key==="r"&&started)reset();
+  keys[space?" ":key]=true;
+});
+document.addEventListener("keyup",e=>{const key=e.key.toLowerCase();keys[(e.code==="Space"||key===" ")?" ":key]=false;});
+
+function moveStick(e){
+  const b=left.getBoundingClientRect(),dx=e.clientX-b.left-b.width/2,dy=e.clientY-b.top-b.height/2,d=Math.hypot(dx,dy)||1,s=Math.min(1,d/42);
+  touchX=dx/d*s;touchY=dy/d*s;
+  knob.style.transform="translate(calc(-50% + "+touchX*26+"px), calc(-50% + "+touchY*26+"px))";
+}
+
+left.addEventListener("pointerdown",e=>{if(!started)return;movingPointer=e.pointerId;left.setPointerCapture(e.pointerId);moveStick(e);});
+left.addEventListener("pointermove",e=>{if(e.pointerId===movingPointer)moveStick(e);});
+
+function stopStick(e){if(e.pointerId!==movingPointer)return;movingPointer=null;touchX=0;touchY=0;knob.style.transform="translate(-50%,-50%)";}
+left.addEventListener("pointerup",stopStick);left.addEventListener("pointercancel",stopStick);left.addEventListener("lostpointercapture",()=>{movingPointer=null;touchX=0;touchY=0;});
+
+right.addEventListener("pointerdown",e=>{if(!started)return;holdingPointer=e.pointerId;right.setPointerCapture(e.pointerId);touching=true;right.classList.add("on");});
+function stopHold(e){if(e.pointerId!==holdingPointer)return;holdingPointer=null;touching=false;right.classList.remove("on");}
+right.addEventListener("pointerup",stopHold);right.addEventListener("pointercancel",stopHold);
+
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
